@@ -1,9 +1,21 @@
 import React, {useEffect, useState} from 'react';
-import {auditTime, map, Subject, switchMap} from "rxjs";
+import {auditTime, combineLatest, interval, map, scan, startWith, Subject, switchMap} from "rxjs";
 import {searchMusicApi} from "../../core/api.service";
 import {onlyUnique} from "../../core/utils";
 import MusicSearchView from "../music-search-view";
 import {Container, TextField} from "@mui/material";
+
+interface State {
+	carousel: string[];
+	results: string[];
+	t: number;
+}
+
+const initial: State = {
+	carousel: ['A', 'B', 'C', 'D', 'E'],
+	results: [],
+	t: 0
+}
 
 const txtSubject = new Subject<string>();
 const apiQuery$ = txtSubject
@@ -14,32 +26,33 @@ const apiQuery$ = txtSubject
 			.filter(onlyUnique)
 			.sort()
 			.slice(0, 5);
-	}));
+	}))
+	.pipe(startWith([]))
+
+const carousel$ =
+	combineLatest([interval(1000), apiQuery$])
+		.pipe(scan((state, current) => {
+			const [t, results] = current;
+			return t > state.t ? {...rotate(state), t} : {...state, results};
+		}, initial))
+
+function rotate(state: State): State {
+	const [head, ...tail] = state.carousel;
+	const [resultsHead, ...resultsTail] = state.results;
+	return {
+		carousel: [...tail, resultsHead || head],
+		results: [...resultsTail],
+		t: state.t
+	};
+}
 
 function MusicSearch() {
-	const [t, setT] = useState(0);
-	const [results, setResults] = useState<string[]>([]);
-	const [carousel, setCarousel] = useState(['A', 'B', 'C', 'D', 'E']);
+	const [carousel, setCarousel] = useState<string[]>([]);
 
 	useEffect(() => {
-		const subscription = apiQuery$.subscribe(res => setResults(res));
-		setTimeout(() => setT(t + 1), 1000);
-		return () => subscription.unsubscribe();
+		const sub = carousel$.subscribe(state => setCarousel(state.carousel));
+		return () => sub.unsubscribe()
 	}, [])
-
-	useEffect(() => {
-		setTimeout(() => setT(t + 1), 1000);
-		rotateCarousel();
-	}, [t])
-
-	const rotateCarousel = () => {
-		const [head, ...tail] = carousel;
-		const [resultsHead, ...resultsTail] = results;
-		const newCarousel = [...tail, resultsHead || head];
-
-		setResults(resultsTail);
-		setCarousel(newCarousel);
-	}
 
 	return (
 		<Container maxWidth='sm'>
